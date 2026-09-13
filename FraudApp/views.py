@@ -6,6 +6,8 @@ from django.conf import settings
 import os
 import io
 import base64
+import matplotlib
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score
@@ -19,9 +21,7 @@ import pandas as pd
 import numpy as np
 from sklearn.preprocessing import StandardScaler
 from sklearn.preprocessing import LabelEncoder
-from sklearn.model_selection import train_test_split
 from sklearn.ensemble import RandomForestClassifier
-from sklearn.metrics import accuracy_score
 from imblearn.over_sampling import SMOTE
 from sklearn.naive_bayes import GaussianNB
 
@@ -49,54 +49,108 @@ def calculateMetrics(algorithm, y_test, predict):
     fscore.append(f)
     return algorithm
 
-dataset = pd.read_csv("Dataset/PS_20174392719_1491204439457_log.csv")
-Y = dataset['isFraud'].ravel()
-unique, count = np.unique(Y, return_counts=True)
-dataset.drop(['step', 'type', 'isFraud', 'isFlaggedFraud'], axis = 1,inplace=True)
+dataset = None
+Y = None
+X = None
 
+X_train = None
+X_test = None
+y_train = None
+y_test = None
+
+train_size = 0
+unique = None
+count = None
+
+rf = None
+nb = None
+conf_matrix = None
+
+scaler = None
 label_encoder = []
-columns = dataset.columns
-types = dataset.dtypes.values
-for j in range(len(types)):
-    name = types[j]
-    if name == 'object': #finding column with object type
-        le = LabelEncoder()
-        dataset[columns[j]] = pd.Series(le.fit_transform(dataset[columns[j]].astype(str)))#encode all str columns to numeric
-        label_encoder.append([columns[j], le])
-dataset.fillna(dataset.mean(), inplace = True)
 
-X = dataset.values
+ml_initialized = False
 
-scaler = StandardScaler()
-X = scaler.fit_transform(X)
 
-X_train, X_test, y_train, y_test = train_test_split(X, Y, test_size=0.2)
-data = np.load("model/data.npy", allow_pickle=True)
-X_train, X_test, y_train, y_test = data
-train_size = X_train.shape[0]
-rf = RandomForestClassifier(n_estimators=1)
-rf.fit(X_train, y_train)
-predict = rf.predict(X_test)
-calculateMetrics("RF", y_test, predict)
+def initialize_ml():
+    global dataset, Y, X
+    global X_train, X_test, y_train, y_test
+    global train_size
+    global unique, count
+    global rf, nb
+    global conf_matrix
+    global scaler
+    global label_encoder
+    global accuracy, precision, recall, fscore
+    global ml_initialized
 
-nb = GaussianNB()
-nb.fit(X_train, y_train)
-predict = nb.predict(X_test)
-calculateMetrics("nb", y_test, predict)
+    if ml_initialized:
+        return
 
-smote = SMOTE(random_state=42)
-X_train, y_train = smote.fit_resample(X_train, y_train)
+    print("Initializing ML models...")
 
-rf = RandomForestClassifier()
-rf.fit(X_train, y_train)
-predict = rf.predict(X_test)
-calculateMetrics("rf", y_test, predict)
-conf_matrix = confusion_matrix(y_test, predict)
+    dataset = pd.read_csv("Dataset/PS_20174392719_1491204439457_log.csv")
+    Y = dataset['isFraud'].ravel()
+    unique, count = np.unique(Y, return_counts=True)
+    dataset.drop(['step', 'type', 'isFraud', 'isFlaggedFraud'], axis=1, inplace=True)
 
-nb = GaussianNB()
-nb.fit(X_train, y_train)
-predict = nb.predict(X_test)
-calculateMetrics("nb", y_test, predict)
+    label_encoder = []
+    columns = dataset.columns
+    types = dataset.dtypes.values
+
+    for j in range(len(types)):
+        if types[j] == 'object':
+            le = LabelEncoder()
+            dataset[columns[j]] = pd.Series(le.fit_transform(dataset[columns[j]].astype(str)))
+            label_encoder.append([columns[j], le])
+
+    dataset.fillna(dataset.mean(numeric_only=True), inplace=True)
+    X = dataset.values
+
+    scaler = StandardScaler()
+    X = scaler.fit_transform(X)
+
+    data = np.load("model/data.npy", allow_pickle=True)
+    X_train, X_test, y_train, y_test = data
+    train_size = X_train.shape[0]
+
+    accuracy.clear()
+    precision.clear()
+    recall.clear()
+    fscore.clear()
+
+    # Random Forest
+    rf_normal = RandomForestClassifier(n_estimators=1, random_state=42)
+    rf_normal.fit(X_train, y_train)
+    predict = rf_normal.predict(X_test)
+    calculateMetrics("Random Forest", y_test, predict)
+
+    # Naive Bayes
+    nb_normal = GaussianNB()
+    nb_normal.fit(X_train, y_train)
+    predict = nb_normal.predict(X_test)
+    calculateMetrics("Naive Bayes", y_test, predict)
+
+    # SMOTE
+    smote = SMOTE(random_state=42)
+    X_train, y_train = smote.fit_resample(X_train, y_train)
+
+    # Random Forest + SMOTE
+    rf = RandomForestClassifier(n_estimators=20, random_state=42)
+    rf.fit(X_train, y_train)
+    predict = rf.predict(X_test)
+    calculateMetrics("Random Forest with SMOTE", y_test, predict)
+    conf_matrix = confusion_matrix(y_test, predict)
+
+    # Naive Bayes + SMOTE
+    nb = GaussianNB()
+    nb.fit(X_train, y_train)
+    predict = nb.predict(X_test)
+    calculateMetrics("Naive Bayes with SMOTE", y_test, predict)
+
+    ml_initialized = True
+    print("ML initialization completed")
+
 
 def Predict(request):
     if request.method == 'GET':
@@ -104,6 +158,7 @@ def Predict(request):
 
 def PredictAction(request):
     if request.method == 'POST':
+        initialize_ml()
         global rf, scaler, labels, dataset
         myfile = request.FILES['t1'].read()
         filename = request.FILES['t1'].name
@@ -118,7 +173,7 @@ def PredictAction(request):
         for i in range(len(label_encoder)):
             le = label_encoder[i]
             testData[le[0]] = pd.Series(le[1].transform(testData[le[0]].astype(str)))#encode all str columns to numeric
-        testData.fillna(dataset.mean(), inplace = True)
+        testData.fillna(dataset.mean(numeric_only=True), inplace = True)
         testData = scaler.transform(testData)
         predict = rf.predict(testData)
         output='<table border=1 align=center width=100%><tr><th><font size="3" color="black">Test Data</th><th><font size="3" color="black">Detection Status</th></tr>'
@@ -133,6 +188,7 @@ def PredictAction(request):
 
 def TrainML(request):
     if request.method == 'GET':
+        initialize_ml()
         global X_train, X_test, y_train, y_test, labels
         global accuracy, precision, recall, fscore, conf_matrix
         output='<table border=1 align=center width=100%><tr><th><font size="3" color="black">Algorithm Name</th><th><font size="3" color="black">Accuracy</th>'
@@ -145,7 +201,7 @@ def TrainML(request):
         figure, axis = plt.subplots(nrows=1, ncols=2,figsize=(10, 3))#display original and predicted segmented image
         axis[0].set_title("Confusion Matrix Prediction Graph")
         axis[1].set_title("All Algorithms Comparison Graph")
-        ax = sns.heatmap(conf_matrix, xticklabels = labels, yticklabels = labels, annot = True, cmap="viridis" ,fmt ="g", ax=axis[0]);
+        ax = sns.heatmap(conf_matrix, xticklabels = labels, yticklabels = labels, annot = True, cmap="viridis" ,fmt ="g", ax=axis[0])
         ax.set_ylim([0,len(labels)])
         df = pd.DataFrame([['Random Forest','Accuracy',accuracy[0]],['Random Forest','Precision',precision[0]],['Random Forest','Recall',recall[0]],['Random Forest','FSCORE',fscore[0]],
                            ['Naive Bayes','Accuracy',accuracy[1]],['Naive Bayes','Precision',precision[1]],['Naive Bayes','Recall',recall[1]],['Naive Bayes','FSCORE',fscore[1]],
@@ -158,11 +214,13 @@ def TrainML(request):
         img_b64 = base64.b64encode(buf.getvalue()).decode()
         plt.clf()
         plt.cla()
+        plt.close('all')
         context= {'data':output, 'img': img_b64}
         return render(request, 'UserScreen.html', context)
 
 def LoadDataset(request):    
     if request.method == 'GET':
+        initialize_ml()
         global unique, count, labels, dataset
         output = '<font size="3" color="black">Online Fraud Payment Detection Dataset Loaded</font><br/>'
         output += '<font size="3" color="blue">Total records found in Dataset = '+str(dataset.shape[0])+'</font><br/>'
@@ -181,16 +239,18 @@ def LoadDataset(request):
         img_b64 = base64.b64encode(buf.getvalue()).decode()
         plt.clf()
         plt.cla()
+        plt.close('all')
         context= {'data':output, 'img': img_b64}
         return render(request, 'UserScreen.html', context)
 
 def BalancedData(request):    
     if request.method == 'GET':
+        initialize_ml()
         global X_train, X_test, y_train, y_test, X, Y, train_size
         output = '<font size="3" color="black">Smote Balancing Dataset Details</font><br/>'
         output += '<font size="3" color="blue">Training Size Before Applying SMOTE = '+str(train_size)+'</font><br/>'
         output += '<font size="3" color="blue">Training Size after Applying SMOTE = '+str(X_train.shape[0])+'</font><br/><br/>'
-        unique, count = np.unique(y_train)
+        unique, count = np.unique(y_train, return_counts=True)
         height = count
         bars = labels
         y_pos = np.arange(len(bars))
@@ -204,6 +264,7 @@ def BalancedData(request):
         img_b64 = base64.b64encode(buf.getvalue()).decode()
         plt.clf()
         plt.cla()
+        plt.close('all')
         context= {'data':output, 'img': img_b64}
         return render(request, 'UserScreen.html', context)    
 
