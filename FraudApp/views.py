@@ -90,7 +90,7 @@ def initialize_ml():
     print("Initializing ML models...")
 
     dataset = pd.read_csv("Dataset/PS_20174392719_1491204439457_log.csv")
-    Y = dataset['isFraud'].ravel()
+    Y = dataset['isFraud'].to_numpy()
     unique, count = np.unique(Y, return_counts=True)
     dataset.drop(['step', 'type', 'isFraud', 'isFlaggedFraud'], axis=1, inplace=True)
 
