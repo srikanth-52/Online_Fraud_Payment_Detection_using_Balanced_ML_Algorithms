@@ -1,0 +1,4 @@
+[project]
+name = "Online_Fraud_Payment_Detection_using_Balanced_ML_Algorithms"
+version = "1.0.0"
+requires-python = "~=3.12.0"
