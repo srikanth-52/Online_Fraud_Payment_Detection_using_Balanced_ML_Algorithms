@@ -2,3 +2,14 @@
 name = "online-fraud-payment-detection"
 version = "1.0.0"
 requires-python = "~=3.12.0"
+
+dependencies = [
+    "Django>=4.2,<5.0",
+    "numpy",
+    "pandas",
+    "matplotlib",
+    "scikit-learn",
+    "seaborn",
+    "imbalanced-learn",
+    "PyMySQL",
+]
